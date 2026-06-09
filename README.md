@@ -57,6 +57,7 @@ make up                # starts api · worker · scheduler · postgres · redis 
 | Swagger | http://localhost:8080/swagger/index.html |
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 |
+| Pushgateway | http://localhost:9091 |
 | Jaeger | http://localhost:16686 |
 
 Scale workers: `docker compose -f deploy/docker-compose.yml up --scale worker=3`
@@ -142,7 +143,7 @@ websocat "ws://localhost:8080/ws/notifications?id=<notification-id>"
 make build            # compile api / worker / scheduler → bin/
 make test             # unit tests (no Docker)
 make test-integration # adapter tests (Docker via testcontainers)
-make test-e2e         # full black-box e2e (Docker)
+make test-e2e         # full black-box e2e + push results to Grafana (Docker)
 make lint             # golangci-lint
 make fmt              # gofumpt + goimports
 make swagger          # regenerate OpenAPI spec
@@ -152,7 +153,7 @@ make swagger          # regenerate OpenAPI spec
 
 - **Unit** — domain logic and every use case run against in-memory fakes; HTTP layer via `httptest`.
 - **Integration** (`-tags=integration`) — Postgres and Redis adapters against ephemeral testcontainers.
-- **E2E** (`-tags=e2e`) — real HTTP server, real workers/scheduler, real Postgres + Redis containers, mock webhook provider.
+- **E2E** (`-tags=e2e`) — real HTTP server, real workers/scheduler, real Postgres + Redis containers, mock webhook provider. Results are pushed to the Prometheus Pushgateway and visible on the Grafana dashboard under **E2E Test Suite** and **Load Tests** rows.
 
 ---
 

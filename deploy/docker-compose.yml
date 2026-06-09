@@ -83,6 +83,11 @@ services:
       redis:
         condition: service_healthy
 
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    ports:
+      - "9091:9091"
+
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
@@ -91,6 +96,7 @@ services:
       - "9090:9090"
     depends_on:
       - api
+      - pushgateway
 
   grafana:
     image: grafana/grafana:11.1.0

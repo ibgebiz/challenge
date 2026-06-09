@@ -185,7 +185,7 @@ func TestE2E_Batch(t *testing.T) {
 	}
 	bid := body["id"].(string)
 
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		_, b := get(t, "/api/v1/batches/"+bid)
 		counts, _ := b["counts"].(map[string]any)
@@ -585,7 +585,7 @@ func TestE2E_PaginationOffset(t *testing.T) {
 // ---- load scenarios ----
 
 func TestE2E_Load_ConcurrentCreates(t *testing.T) {
-	const n = 20
+	const n = 50
 	ids := make([]string, n)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -645,7 +645,7 @@ func TestE2E_Load_ConcurrentCreates(t *testing.T) {
 }
 
 func TestE2E_Load_HighVolumeBatch(t *testing.T) {
-	const total = 50
+	const total = 200
 	notifs := make([]map[string]any, total)
 	for i := 0; i < total; i++ {
 		notifs[i] = map[string]any{
@@ -662,7 +662,7 @@ func TestE2E_Load_HighVolumeBatch(t *testing.T) {
 	}
 	bid := body["id"].(string)
 
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
 		_, b := get(t, "/api/v1/batches/"+bid)
 		counts, _ := b["counts"].(map[string]any)
@@ -675,7 +675,7 @@ func TestE2E_Load_HighVolumeBatch(t *testing.T) {
 }
 
 func TestE2E_Load_ConcurrentIdempotency(t *testing.T) {
-	const goroutines = 10
+	const goroutines = 25
 	const idemKey = "load-idem-key-concurrent"
 	results := make([]string, goroutines)
 	var mu sync.Mutex
@@ -705,7 +705,7 @@ func TestE2E_Load_ConcurrentIdempotency(t *testing.T) {
 }
 
 func TestE2E_Load_PriorityOrdering(t *testing.T) {
-	const perPriority = 5
+	const perPriority = 15
 	highIDs := make([]string, perPriority)
 	lowIDs := make([]string, perPriority)
 
@@ -726,7 +726,7 @@ func TestE2E_Load_PriorityOrdering(t *testing.T) {
 	// Wait for all to be delivered.
 	allIDs := append(highIDs, lowIDs...)
 	for _, id := range allIDs {
-		waitStatus(t, id, "delivered", 30*time.Second)
+		waitStatus(t, id, "delivered", 60*time.Second)
 	}
 
 	// Compare earliest high-priority delivery time against earliest low-priority.

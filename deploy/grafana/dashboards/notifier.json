@@ -44,6 +44,229 @@
         { "expr": "notif_dlq_size", "legendFormat": "dlq" },
         { "expr": "notif_in_flight", "legendFormat": "in-flight" }
       ]
+    },
+
+    { "id": 5, "title": "E2E Test Suite", "type": "row", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }, "panels": [] },
+
+    {
+      "id": 6,
+      "title": "E2E Summary",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 17 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Passed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "Failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "e2e_tests_passed{job=\"e2e_tests\"}",  "legendFormat": "Passed", "instant": true },
+        { "expr": "e2e_tests_failed{job=\"e2e_tests\"}",  "legendFormat": "Failed", "instant": true },
+        { "expr": "e2e_tests_total{job=\"e2e_tests\"}",   "legendFormat": "Total",  "instant": true }
+      ]
+    },
+
+    {
+      "id": 7,
+      "title": "Last Run",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 17 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": { "defaults": { "unit": "dateTimeAsLocal" } },
+      "targets": [
+        { "expr": "e2e_last_run_timestamp_seconds{job=\"e2e_tests\"} * 1000",
+          "legendFormat": "Last run", "instant": true }
+      ]
+    },
+
+    {
+      "id": 8,
+      "title": "Per-Test Status",
+      "type": "table",
+      "gridPos": { "h": 14, "w": 14, "x": 0, "y": 21 },
+      "options": { "sortBy": [{ "displayName": "Test", "desc": false }] },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "displayMode": "color-background", "width": 220 },
+          "mappings": [
+            { "type": "value", "options": {
+                "0": { "text": "FAIL", "color": "red",   "index": 0 },
+                "1": { "text": "PASS", "color": "green", "index": 1 }
+            }}
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "e2e_test_result{job=\"e2e_tests\"}",
+          "legendFormat": "{{test}}", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": {
+            "excludeByName": { "Time": true, "instance": true, "job": true, "__name__": true },
+            "renameByName":  { "test": "Test", "Value": "Status" }
+        }}
+      ]
+    },
+
+    {
+      "id": 9,
+      "title": "Per-Test Duration (s)",
+      "type": "bargauge",
+      "gridPos": { "h": 14, "w": 10, "x": 14, "y": 21 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0, "color": { "mode": "continuous-BlPu" } }
+      },
+      "targets": [
+        { "expr": "e2e_test_duration_seconds{job=\"e2e_tests\"}",
+          "legendFormat": "{{test}}", "instant": true }
+      ]
+    },
+
+    { "id": 10, "title": "Load Tests", "type": "row", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }, "panels": [] },
+
+    {
+      "id": 11,
+      "title": "Load Summary",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 36 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Passed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "Failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "e2e_load_tests_passed{job=\"e2e_tests\"}", "legendFormat": "Passed", "instant": true },
+        { "expr": "e2e_load_tests_failed{job=\"e2e_tests\"}", "legendFormat": "Failed", "instant": true }
+      ]
+    },
+
+    {
+      "id": 12,
+      "title": "Total Notifications Under Load",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 36 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }
+      },
+      "targets": [
+        { "expr": "e2e_load_notifications_delivered_total{job=\"e2e_tests\"}",
+          "legendFormat": "Notifications", "instant": true }
+      ]
+    },
+
+    {
+      "id": 13,
+      "title": "Load Test Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 36 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "orientation": "horizontal",
+        "textMode": "name",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+                "0": { "text": "FAIL", "color": "red",   "index": 0 },
+                "1": { "text": "PASS", "color": "green", "index": 1 }
+            }}
+          ]
+        }
+      },
+      "targets": [
+        { "expr": "e2e_load_test_result{job=\"e2e_tests\",test=\"TestE2E_Load_ConcurrentCreates\"}",
+          "legendFormat": "Concurrent Creates (×20)", "instant": true },
+        { "expr": "e2e_load_test_result{job=\"e2e_tests\",test=\"TestE2E_Load_HighVolumeBatch\"}",
+          "legendFormat": "High Volume Batch (×50)", "instant": true },
+        { "expr": "e2e_load_test_result{job=\"e2e_tests\",test=\"TestE2E_Load_ConcurrentIdempotency\"}",
+          "legendFormat": "Concurrent Idempotency (×10)", "instant": true },
+        { "expr": "e2e_load_test_result{job=\"e2e_tests\",test=\"TestE2E_Load_PriorityOrdering\"}",
+          "legendFormat": "Priority Ordering (×10)", "instant": true }
+      ]
+    },
+
+    {
+      "id": 14,
+      "title": "Load Test Durations",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0, "color": { "mode": "continuous-GrYlRd" } }
+      },
+      "targets": [
+        { "expr": "e2e_load_test_duration_seconds{job=\"e2e_tests\"}",
+          "legendFormat": "{{test}}", "instant": true }
+      ]
+    },
+
+    {
+      "id": 15,
+      "title": "Notifications Exercised per Load Test",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "color": { "mode": "continuous-BlPu" } }
+      },
+      "targets": [
+        { "expr": "e2e_load_notifications_total{job=\"e2e_tests\"}",
+          "legendFormat": "{{test}}", "instant": true }
+      ]
     }
   ]
 }

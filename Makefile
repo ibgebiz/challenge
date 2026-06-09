@@ -20,7 +20,7 @@ test-integration:
 	go test ./internal/adapter/... -count=1 -tags=integration
 
 test-e2e:
-	go test ./test/e2e/... -count=1 -tags=e2e -v
+	go test ./test/e2e/... -count=1 -tags=e2e -v -json 2>&1 | go run scripts/push_e2e_metrics.go
 
 build:
 	go build -o bin/api ./cmd/api
