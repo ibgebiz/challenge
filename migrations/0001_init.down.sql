@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS delivery_attempts;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS templates;
+DROP TABLE IF EXISTS batches;
+DROP TYPE IF EXISTS status;
+DROP TYPE IF EXISTS priority;
+DROP TYPE IF EXISTS channel;

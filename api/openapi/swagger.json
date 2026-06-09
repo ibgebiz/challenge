@@ -1,0 +1,11 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Event-driven notification system: create, query, cancel, and\nstream notifications across SMS, Email, and Push channels.",
+        "title": "Notification System API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {}
+}

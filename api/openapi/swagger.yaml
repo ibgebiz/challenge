@@ -1,0 +1,10 @@
+basePath: /
+info:
+  contact: {}
+  description: |-
+    Event-driven notification system: create, query, cancel, and
+    stream notifications across SMS, Email, and Push channels.
+  title: Notification System API
+  version: "1.0"
+paths: {}
+swagger: "2.0"
