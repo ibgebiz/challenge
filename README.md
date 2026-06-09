@@ -1,209 +1,179 @@
-# Event-Driven Notification System
+# Notification System
 
-A scalable notification system that accepts requests over a REST API, processes them
-asynchronously through Redis-backed priority queues, and delivers them to an external
-provider (simulated with [webhook.site](https://webhook.site)) across **SMS / Email / Push**
-channels — with priority queueing, per-channel rate limiting, idempotency, retries with a
-dead-letter queue, scheduled delivery, message templates, real-time WebSocket status
-updates, and full observability (Prometheus, Grafana, OpenTelemetry/Jaeger).
+Event-driven notification service built in **Go** / **Clean Architecture**.  
+Accepts requests over REST, processes them asynchronously through Redis-backed priority queues, and delivers to an external provider across **SMS / Email / Push** channels.
 
-Built in **Go** following **Clean Architecture**.
+**Features:** priority queues · per-channel rate limiting · idempotency · retry + DLQ · scheduled delivery · message templates · WebSocket status streaming · Prometheus / Grafana / Jaeger
 
 ---
 
 ## Architecture
 
-Three runnable binaries share one `internal/` core and communicate only through **Postgres**
-(system of record) and **Redis** (queue/coordination). Workers and the API scale horizontally;
-the scheduler runs as a singleton.
+Three binaries share one `internal/` core. They communicate exclusively through **Postgres** (state) and **Redis** (queues / coordination).
 
-```
-                    ┌─────────────┐
-   API consumers ──▶│  cmd/api     │  Gin REST + WebSocket + Swagger + /metrics
-                    │  (N replicas)│  validate → persist → enqueue
-                    └──────┬───────┘
-                           │ writes state          ┌──────────────┐
-                           ▼                        │  Postgres     │  source of truth
-        ┌──────────────────────────────────────────│  notifications,
-        │                  │                        │  batches, templates,
-        │ enqueue (Redis)  │ read/write state       │  delivery_attempts
-        ▼                  ▼                        └──────────────┘
-   ┌──────────┐      ┌──────────────┐
-   │  Redis    │◀────│ cmd/scheduler │ promotes due scheduled items → queue
-   │ priority  │     │  (1 replica)  │
-   │ queues    │     └──────────────┘
-   │ rate limit│           ┌──────────────┐
-   │ idempotency◀──────────│  cmd/worker   │ dequeue → rate-limit → deliver
-   │ retry ZSET│           │  (N replicas) │ → webhook.site → update state
-   │ DLQ       │           └──────┬───────┘ → publish status event (Redis pub/sub)
-   └──────────┘                   │
-                                  ▼  status events → WebSocket hub, metrics
-                            OTel → Jaeger · /metrics → Prometheus → Grafana
+```mermaid
+flowchart LR
+    Client -->|REST / WS| API[cmd/api]
+    API -->|persist| PG[(Postgres)]
+    API -->|enqueue| Redis[(Redis)]
+    Scheduler[cmd/scheduler] -->|promote due items| Redis
+    Redis -->|dequeue| Worker[cmd/worker]
+    Worker -->|update state| PG
+    Worker -->|pub status| Redis
+    Worker -->|deliver| Provider[Webhook provider]
 ```
 
-### Clean Architecture layers (dependencies point inward only)
+**Status lifecycle**
 
-| Layer | Package | Responsibility |
-|-------|---------|----------------|
-| Entities | `internal/domain` | Entities, enums, validation, template rendering. No external deps. |
-| Application | `internal/usecase` | Interactors + **ports** (interfaces): `Create/Process/Cancel/...` |
-| Adapters | `internal/adapter/*` | Implement ports: `http` (Gin), `repository/postgres`, `queue/redis`, `ratelimit/redis`, `idempotency/redis`, `provider/webhook`, `ws` |
-| Frameworks | `internal/infrastructure/*` | db, redis client, config, observability |
-| Composition | `internal/app`, `cmd/*` | Build infra/adapters, inject into interactors, run |
+```
+pending → queued → sending → delivered
+                           ↘ failed      (retries exhausted → DLQ)
+          ↑
+       cancelled  (only from pending / queued)
+```
+
+### Layers
+
+| Layer | Package | Role |
+|-------|---------|------|
+| Domain | `internal/domain` | Entities, enums, validation, template rendering |
+| Use cases | `internal/usecase` | Interactors + port interfaces |
+| Adapters | `internal/adapter/*` | HTTP (Gin), Postgres repos, Redis queue/rate-limit/idempotency, webhook provider, WebSocket |
+| Infrastructure | `internal/infrastructure/*` | Config, DB pool, Redis client, observability |
+| Composition | `internal/app`, `cmd/*` | Wire and run |
 
 ---
 
 ## Quick start
 
 ```bash
-cp .env.example .env          # then set PROVIDER_URL (see below)
-make up                       # docker compose: api, worker, scheduler, postgres, redis,
-                              # prometheus, grafana, jaeger — migrations run on api startup
+cp .env.example .env   # set PROVIDER_URL (see below)
+make up                # starts api · worker · scheduler · postgres · redis · prometheus · grafana · jaeger
 ```
 
 | Service | URL |
 |---------|-----|
 | API | http://localhost:8080 |
-| Swagger UI | http://localhost:8080/swagger/index.html |
-| Health | http://localhost:8080/healthz · http://localhost:8080/readyz |
-| Metrics | http://localhost:8080/metrics |
+| Swagger | http://localhost:8080/swagger/index.html |
 | Prometheus | http://localhost:9090 |
-| Grafana (anon admin) | http://localhost:3000 → dashboard "Notification System" |
+| Grafana | http://localhost:3000 |
 | Jaeger | http://localhost:16686 |
 
-Scale workers: `docker compose -f deploy/docker-compose.yml up --scale worker=3`.
+Scale workers: `docker compose -f deploy/docker-compose.yml up --scale worker=3`
 
-### Configuring the provider (webhook.site)
+### Provider setup (webhook.site)
 
-1. Open https://webhook.site and copy your unique URL (`https://webhook.site/<uuid>`).
-2. Set it as `PROVIDER_URL` in `.env` (compose reads it) — e.g. `PROVIDER_URL=https://webhook.site/<uuid>`.
-3. On webhook.site, set the default response to **status `202`** with JSON body:
+1. Copy your unique URL from https://webhook.site.
+2. Set `PROVIDER_URL=https://webhook.site/<uuid>` in `.env`.
+3. Set the default response to **HTTP 202** with body:
    ```json
-   { "messageId": "uuid-here", "status": "accepted", "timestamp": "2026-06-09T00:00:00Z" }
+   {"messageId":"<uuid>","status":"accepted","timestamp":"2026-01-01T00:00:00Z"}
    ```
 
 ---
 
-## API examples
+## API
 
-Create a single notification (priority high), with an idempotency key:
+### Notifications
 
 ```bash
-curl -s -X POST localhost:8080/api/v1/notifications \
+# Create (single)
+curl -X POST localhost:8080/api/v1/notifications \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: order-42' \
-  -d '{"channel":"sms","recipient":"+905551234567","content":"Your code is 1234","priority":"high"}'
-```
+  -d '{"channel":"sms","recipient":"+905551234567","content":"Code: 1234","priority":"high"}'
 
-Batch create (up to 1000):
-
-```bash
-curl -s -X POST localhost:8080/api/v1/notifications/batch \
+# Create (batch, up to 1000)
+curl -X POST localhost:8080/api/v1/notifications/batch \
   -H 'Content-Type: application/json' \
   -d '{"notifications":[
-        {"channel":"sms","recipient":"+905551111111","content":"A","priority":"normal"},
-        {"channel":"email","recipient":"a@b.com","content":"B","priority":"low"}
-      ]}'
-```
+    {"channel":"sms","recipient":"+905551111","content":"A","priority":"normal"},
+    {"channel":"email","recipient":"a@b.com","content":"B","priority":"low"}
+  ]}'
 
-Schedule for the future:
-
-```bash
-curl -s -X POST localhost:8080/api/v1/notifications \
+# Schedule for the future
+curl -X POST localhost:8080/api/v1/notifications \
   -H 'Content-Type: application/json' \
   -d '{"channel":"push","recipient":"device-1","content":"Reminder","scheduledAt":"2030-01-01T00:00:00Z"}'
+
+# Get / list / cancel
+curl localhost:8080/api/v1/notifications/<id>
+curl "localhost:8080/api/v1/notifications?status=delivered&channel=sms&limit=20&offset=0"
+curl -X DELETE localhost:8080/api/v1/notifications/<id>   # pending / queued only
+curl localhost:8080/api/v1/batches/<batch-id>
 ```
 
-Templates:
+### Templates
 
 ```bash
-curl -s -X POST localhost:8080/api/v1/templates \
+curl -X POST localhost:8080/api/v1/templates \
   -H 'Content-Type: application/json' \
   -d '{"name":"welcome","channel":"email","body":"Hello {{name}}!"}'
 
-curl -s -X POST localhost:8080/api/v1/notifications \
+curl -X POST localhost:8080/api/v1/notifications \
   -H 'Content-Type: application/json' \
-  -d '{"channel":"email","recipient":"a@b.com","templateId":"<template-id>","variables":{"name":"Ada"}}'
+  -d '{"channel":"email","recipient":"a@b.com","templateId":"<id>","variables":{"name":"Ada"}}'
 ```
 
-Query / list / cancel / batch status:
+### WebSocket status stream
 
 ```bash
-curl -s localhost:8080/api/v1/notifications/<id>
-curl -s "localhost:8080/api/v1/notifications?status=delivered&channel=sms&limit=20&offset=0"
-curl -s -X DELETE localhost:8080/api/v1/notifications/<id>      # only pending/queued
-curl -s localhost:8080/api/v1/batches/<batch-id>
-```
-
-Real-time status over WebSocket (filter by `id` or `batch`):
-
-```bash
-# e.g. with websocat
-websocat "ws://localhost:8080/ws/notifications?id=<id>"
+websocat "ws://localhost:8080/ws/notifications?id=<notification-id>"
 ```
 
 ---
 
 ## Design notes
 
-- **Priority queue** — three Redis lists drained high→normal→low via a single `BRPOP`; lower
-  priorities are served whenever higher queues are empty (no hard starvation).
-- **Rate limiting** — per-channel fixed-window counter in Redis, default **100 msg/s/channel**.
-  When no token is available the item is re-queued with a short delay so workers stay free.
-- **Idempotency** — `Idempotency-Key` header (single) or per-item key; enforced by a Redis
-  `SETNX` claim plus a `UNIQUE` constraint in Postgres (the ultimate source of truth).
-- **Retry + DLQ** — fixed-interval retries (default `RETRY_INTERVAL`, max `MAX_RETRY_ATTEMPTS`)
-  via a Redis sorted set promoted back into the queue; exhausted items go to the DLQ and are
-  marked `failed`. Every attempt is recorded in `delivery_attempts`.
-- **Scheduling** — future-dated notifications live in a Redis sorted set; the scheduler
-  promotes due items into the queue.
-- **Status lifecycle** — `pending → queued → sending → delivered | failed | cancelled`.
-- **Observability** — Prometheus metrics (queue depth, delivered/failed/retried, latency,
-  DLQ size, rate-limited), structured JSON logs with `X-Correlation-ID`, OpenTelemetry traces
-  to Jaeger, and `/healthz` + `/readyz`. The API exposes system-wide queue/DLQ gauges; the
-  worker exposes delivery counters on `:8081/metrics`.
+| Concern | Approach |
+|---------|----------|
+| **Priority queue** | Three Redis lists drained high → normal → low via `BRPOP` |
+| **Rate limiting** | Per-channel fixed-window counter in Redis (default 100 msg/s). Throttled items are re-queued, not dropped |
+| **Idempotency** | `Idempotency-Key` header + Redis `SETNX` + Postgres `UNIQUE` constraint |
+| **Retry + DLQ** | Fixed-interval retry via a Redis sorted set; after `MAX_RETRY_ATTEMPTS` the item is marked `failed` and moved to the DLQ |
+| **Scheduling** | Future notifications held in a Redis sorted set; scheduler promotes due items to the queue every 300 ms |
+| **Observability** | Prometheus metrics, `slog` JSON logs with `X-Correlation-ID`, OpenTelemetry traces → Jaeger, `/healthz` + `/readyz` |
 
 ---
 
 ## Development
 
 ```bash
-make build              # build all three binaries into bin/
-make test               # unit tests (no external services required)
-make test-integration   # integration tests (requires Docker; uses testcontainers)
-make lint               # golangci-lint
-make fmt                # gofumpt + goimports
-make swagger            # regenerate OpenAPI docs from handler annotations
+make build            # compile api / worker / scheduler → bin/
+make test             # unit tests (no Docker)
+make test-integration # adapter tests (Docker via testcontainers)
+make test-e2e         # full black-box e2e (Docker)
+make lint             # golangci-lint
+make fmt              # gofumpt + goimports
+make swagger          # regenerate OpenAPI spec
 ```
 
 ### Testing strategy
 
-- **Unit tests** — domain validation/rendering and every interactor are tested against
-  in-memory fake ports (no Docker). The HTTP layer is tested with Gin + `httptest`; the
-  provider with `httptest`.
-- **Integration tests** (`-tags=integration`) — Postgres and Redis adapters run against
-  ephemeral containers via `testcontainers-go`.
+- **Unit** — domain logic and every use case run against in-memory fakes; HTTP layer via `httptest`.
+- **Integration** (`-tags=integration`) — Postgres and Redis adapters against ephemeral testcontainers.
+- **E2E** (`-tags=e2e`) — real HTTP server, real workers/scheduler, real Postgres + Redis containers, mock webhook provider.
 
 ---
 
 ## Project layout
 
 ```
-cmd/{api,worker,scheduler}     # composition roots
+cmd/
+  api/  worker/  scheduler/     composition roots
 internal/
-  domain/                      # entities, enums, validation, templates
-  usecase/                     # interactors + ports
+  domain/                       entities, enums, validation
+  usecase/                      interactors + port interfaces
   adapter/
-    http/  ws/                 # Gin handlers, middleware; WebSocket hub + Redis bridge
-    repository/postgres/       # repositories
-    queue/redis/               # priority queue, retry, DLQ, scheduled store
-    ratelimit/redis/  idempotency/redis/  provider/webhook/
-  infrastructure/              # config, db, redisclient, observability
-  app/                         # shared container wiring
-migrations/                    # versioned SQL (golang-migrate, embedded)
-deploy/                        # docker-compose, prometheus, grafana
-api/openapi/                   # generated Swagger
+    http/  ws/                  REST handlers, WebSocket hub
+    repository/postgres/        Postgres repos
+    queue/redis/                priority queue, retry, DLQ, scheduled store
+    ratelimit/redis/
+    idempotency/redis/
+    provider/webhook/
+  infrastructure/               config, db, redis, observability
+  app/                          shared wiring
+migrations/                     versioned SQL (embedded)
+deploy/                         docker-compose, Prometheus, Grafana
+api/openapi/                    generated Swagger
 ```
-
-> **Note:** GitHub Actions CI/CD was intentionally left out of scope; linting and tests run
-> locally via `make lint test`. A workflow calling `make lint test` can be added in ~15 lines.
