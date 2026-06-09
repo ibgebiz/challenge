@@ -1,6 +1,6 @@
 # Event-Driven Notification System — Design Spec
 
-**Project:** Insider One Software Engineer Assessment
+**Project:** Lead Software Engineer Assessment
 **Date:** 2026-06-09
 **Language:** Go (1.2x)
 
